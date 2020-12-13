@@ -14,6 +14,7 @@ class Network:
         self.model_file = './pacman.h5'
         self.model = self.create_q_model()
         self.future_model = self.create_q_model()
+        self.early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=100)
 
     def create_q_model(self):
         if self.isTrained:
@@ -68,10 +69,14 @@ class Pacman:
         for episode in range(self.episodes):
             total_reward = 0
             state = np.array(self.env.reset())
+            # Skip first 30 frames when the game starts
+            for _ in range(30):
+                self.env.step(0)
             t = 0
             for t in range(100000):
                 frame_count += 1
                 self.env.render()
+                # Probability to randomly choose an action
                 if self.epsilon_greedy_exploration > np.random.rand(1)[0]:
                     action = np.random.choice(self.action_size)
                 else:
@@ -85,6 +90,7 @@ class Pacman:
                 reward *= 10
                 state_next = np.array(state_next)
                 total_reward += reward
+                # Buffer update
                 action_history.append(action)
                 state_history.append(state)
                 state_next_history.append(state_next)
@@ -92,26 +98,34 @@ class Pacman:
                 rewards_history.append(reward)
                 state = state_next
                 if len(done_history) > self.batch_size and frame_count > 10000 and frame_count % self.learn_freq == 0:
+                    # Choose from buffer
                     indices = np.random.choice(range(len(done_history)), size=self.batch_size)
                     state_sample = np.array([state_history[i] for i in indices])
                     state_next_sample = np.array([state_next_history[i] for i in indices])
                     rewards_sample = [rewards_history[i] for i in indices]
                     action_sample = [action_history[i] for i in indices]
                     done_sample = tf.convert_to_tensor([float(done_history[i]) for i in indices])
-                    future_rewards = self.network.future_model.predict(state_next_sample)
+                    # Approximate sum of future rewards by predicting the next optimal action
+                    future_rewards = self.network.future_model.predict(state_next_sample,
+                                                                       callbacks=[self.network.early_stopping])
                     updated_q_values = rewards_sample + self.gamma * tf.reduce_max(
                         future_rewards, axis=1
                     )
                     updated_q_values = updated_q_values * (1 - done_sample) - done_sample
+                    # Labels
                     masks = tf.one_hot(action_sample, self.action_size)
+                    # Feed-forward
                     with tf.GradientTape() as tape:
                         q_values = self.network.model(state_sample)
                         q_action = tf.reduce_sum(tf.multiply(q_values, masks), axis=1)
                         loss = self.loss_function(updated_q_values, q_action)
+                    # Backpropagation
                     grads = tape.gradient(loss, self.network.model.trainable_variables)
                     self.optimizer.apply_gradients(zip(grads, self.network.model.trainable_variables))
+                # Update future weights
                 if frame_count > 10000 and frame_count % self.update_future_freq == 0:
                     self.network.future_model.set_weights(self.network.model.get_weights())
+                # Remove from buffer
                 if len(rewards_history) > self.max_memory_length:
                     del rewards_history[:1]
                     del state_history[:1]
@@ -120,11 +134,15 @@ class Pacman:
                     del done_history[:1]
                 if done:
                     break
+            # All rewards
             episode_reward_history.append(total_reward)
             if episode % 10 == 0:
                 self.network.save_model()
             template = "running reward: {:.2f} at episode {},frames played {}, frame count total {}"
             print(template.format(total_reward, episode, t, frame_count))
+
+        self.network.save_model()
+        print("Training finished and models saved.")
 
 
 if __name__ == "__main__":
