@@ -54,7 +54,7 @@ class Pacman:
         self.episodes = 10000
         self.state_size = self.env.observation_space.shape
         self.action_size = self.env.action_space.n
-        self.network = Network(self.state_size, self.action_size, True)
+        self.network = Network(self.state_size, self.action_size, False)
         self.loss_function = keras.losses.mse
         self.optimizer = keras.optimizers.Adam(learning_rate=0.005, clipnorm=10)
 
@@ -144,7 +144,20 @@ class Pacman:
         self.network.save_model()
         print("Training finished and models saved.")
 
+    def play(self):
+        for i_episode in range(20):
+            observation = self.env.reset()
+            for t in range(10000):
+                self.env.render()
+                state_tensor = tf.convert_to_tensor(observation)
+                state_tensor = tf.expand_dims(state_tensor, 0)
+                model = self.network.load_model()
+                action_probs = model(state_tensor)
+                action = tf.argmax(action_probs[0]).numpy()
+                observation, reward, done, info = self.env.step(action)
+
 
 if __name__ == "__main__":
     pac = Pacman()
-    pac.train()
+    # pac.train()
+    pac.play()
