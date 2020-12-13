@@ -43,6 +43,7 @@ class Pacman:
         self.max_memory_length = 100000
         self.gamma = 0.99
         self.learn_freq = 4
+        self.update_future_freq = 2000
         self.epsilon_min = 0.1
         self.epsilon_update = 0.0000009
         self.epsilon_greedy_exploration = 1.0
@@ -81,6 +82,7 @@ class Pacman:
                 self.epsilon_greedy_exploration -= self.epsilon_greedy_exploration * self.epsilon_update
                 self.epsilon_greedy_exploration = max(self.epsilon_greedy_exploration, self.epsilon_min)
                 state_next, reward, done, _ = self.env.step(action)
+                reward *= 10
                 state_next = np.array(state_next)
                 total_reward += reward
                 action_history.append(action)
@@ -89,7 +91,7 @@ class Pacman:
                 done_history.append(done)
                 rewards_history.append(reward)
                 state = state_next
-                if len(done_history) > self.batch_size:
+                if len(done_history) > self.batch_size and frame_count > 10000 and frame_count % self.learn_freq == 0:
                     indices = np.random.choice(range(len(done_history)), size=self.batch_size)
                     state_sample = np.array([state_history[i] for i in indices])
                     state_next_sample = np.array([state_next_history[i] for i in indices])
@@ -108,7 +110,7 @@ class Pacman:
                         loss = self.loss_function(updated_q_values, q_action)
                     grads = tape.gradient(loss, self.network.model.trainable_variables)
                     self.optimizer.apply_gradients(zip(grads, self.network.model.trainable_variables))
-                if frame_count > 10000 and frame_count % self.learn_freq == 0:
+                if frame_count > 10000 and frame_count % self.update_future_freq == 0:
                     self.network.future_model.set_weights(self.network.model.get_weights())
                 if len(rewards_history) > self.max_memory_length:
                     del rewards_history[:1]
@@ -118,7 +120,8 @@ class Pacman:
                     del done_history[:1]
                 if done:
                     break
-            if episode % 2 == 0:
+            episode_reward_history.append(total_reward)
+            if episode % 10 == 0:
                 self.network.save_model()
             template = "running reward: {:.2f} at episode {},frames played {}, frame count total {}"
             print(template.format(total_reward, episode, t, frame_count))
