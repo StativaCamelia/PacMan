@@ -32,8 +32,8 @@ class Network:
 
         return created_model
 
-    def save_model(self):
-        self.model.save(self.model_file)
+    def save_model(self, file):
+        self.model.save(file)
 
     def load_model(self):
         return keras.models.load_model(self.model_file, compile=False)
@@ -66,6 +66,7 @@ class Pacman:
         done_history = []
         episode_reward_history = []
         frame_count = 0
+        best = 0
         for episode in range(self.episodes):
             total_reward = 0
             state = np.array(self.env.reset())
@@ -136,14 +137,14 @@ class Pacman:
                     break
             # All rewards
             episode_reward_history.append(total_reward)
-            if episode % 10 == 0:
-                self.network.save_model()
-            if episode % 60 == 0:
+            if total_reward > best:
+                self.network.save_model("./pacman_best.h5")
+                best = total_reward
+            if episode % 30 == 0:
                 self.plot(episode, episode_reward_history)
             template = "running reward: {:.2f} at episode {},frames played {}, frame count total {}"
             print(template.format(total_reward, episode, t, frame_count))
-
-        self.network.save_model()
+        self.network.save_model("./pacman.h5")
         print("Training finished and models saved.")
 
     def plot(self, episode, episode_reward_history):
@@ -157,7 +158,7 @@ class Pacman:
          plt.legend()
          plt.draw()
          plt.savefig('plots/rewards_{}.png'.format(episode))
-         plt.show(block = False)
+         # plt.show(block = False)
 
     def play(self):
         model = self.network.load_model()
