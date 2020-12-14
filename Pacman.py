@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-
+import matplotlib.pyplot as plt
 
 class Network:
     def __init__(self, input_size, action_size, isTrained):
@@ -51,7 +51,7 @@ class Pacman:
         self.batch_size = 32
         self.env = gym.make('MsPacman-v0')
         self.env = wrap_deepmind(self.env, frame_stack=True, scale=True)
-        self.episodes = 10000
+        self.episodes = 10200
         self.state_size = self.env.observation_space.shape
         self.action_size = self.env.action_space.n
         self.network = Network(self.state_size, self.action_size, False)
@@ -75,7 +75,7 @@ class Pacman:
             t = 0
             for t in range(100000):
                 frame_count += 1
-                self.env.render()
+                # self.env.render()
                 # Probability to randomly choose an action
                 if self.epsilon_greedy_exploration > np.random.rand(1)[0]:
                     action = np.random.choice(self.action_size)
@@ -138,26 +138,45 @@ class Pacman:
             episode_reward_history.append(total_reward)
             if episode % 10 == 0:
                 self.network.save_model()
+            if episode % 60 == 0:
+                self.plot(episode, episode_reward_history)
             template = "running reward: {:.2f} at episode {},frames played {}, frame count total {}"
             print(template.format(total_reward, episode, t, frame_count))
 
         self.network.save_model()
         print("Training finished and models saved.")
 
+    def plot(self, episode, episode_reward_history):
+         episode_reward_history = [
+             episode_reward_history[a] + episode_reward_history[a + 1] + episode_reward_history[a + 2] for a in
+             range(0, len(episode_reward_history) - 2, 3)]
+         plt.plot(range(episode // 3), episode_reward_history)
+         plt.title('Training reward')
+         plt.xlabel('Episodes')
+         plt.ylabel('Reward')
+         plt.legend()
+         plt.draw()
+         plt.savefig('plots/rewards_{}.png'.format(episode))
+         plt.show(block = False)
+
     def play(self):
+        model = self.network.load_model()
         for i_episode in range(20):
             observation = self.env.reset()
             for t in range(10000):
                 self.env.render()
-                state_tensor = tf.convert_to_tensor(observation)
-                state_tensor = tf.expand_dims(state_tensor, 0)
-                model = self.network.load_model()
-                action_probs = model(state_tensor)
-                action = tf.argmax(action_probs[0]).numpy()
+                if self.epsilon_min > np.random.rand(1)[0]:
+                    action = np.random.choice(self.action_size)
+                else:
+                    state_tensor = tf.convert_to_tensor(observation)
+                    state_tensor = tf.expand_dims(state_tensor, 0)
+                    action_probs = model(state_tensor)
+                    action = tf.argmax(action_probs[0]).numpy()
                 observation, reward, done, info = self.env.step(action)
-
+                if done:
+                    break
 
 if __name__ == "__main__":
     pac = Pacman()
-    # pac.train()
-    pac.play()
+    pac.train()
+    # pac.play()
