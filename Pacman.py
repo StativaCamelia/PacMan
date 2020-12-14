@@ -18,7 +18,7 @@ class Network:
 
     def create_q_model(self):
         if self.isTrained:
-            created_model = self.load_model()
+            created_model = self.load_model("./pacman_best.h5")
         else:
             inputs = layers.Input(self.input_size)
             layer1 = layers.Conv2D(32, 8, strides=4, activation="relu")(inputs)
@@ -35,7 +35,7 @@ class Network:
     def save_model(self, file):
         self.model.save(file)
 
-    def load_model(self):
+    def load_model(self, file):
         return keras.models.load_model(self.model_file, compile=False)
 
 
@@ -161,7 +161,7 @@ class Pacman:
          # plt.show(block = False)
 
     def play(self):
-        model = self.network.load_model()
+        model = self.network.load_model("./pacman_best.h5")
         for i_episode in range(20):
             observation = self.env.reset()
             for t in range(10000):
