@@ -6,6 +6,7 @@ from tensorflow import keras
 from tensorflow.keras import layers
 import matplotlib.pyplot as plt
 
+
 class Network:
     def __init__(self, input_size, action_size, isTrained):
         self.input_size = input_size
@@ -13,7 +14,7 @@ class Network:
         self.isTrained = isTrained
         self.model_file = './pacman.h5'
         self.model = self.create_q_model()
-        self.future_model = self.create_q_model()
+        # self.future_model = self.create_q_model()
         self.early_stopping = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=100)
 
     def create_q_model(self):
@@ -36,7 +37,7 @@ class Network:
         self.model.save(file)
 
     def load_model(self, file):
-        return keras.models.load_model(self.model_file, compile=False)
+        return keras.models.load_model(file, compile=False)
 
 
 class Pacman:
@@ -54,7 +55,7 @@ class Pacman:
         self.episodes = 10200
         self.state_size = self.env.observation_space.shape
         self.action_size = self.env.action_space.n
-        self.network = Network(self.state_size, self.action_size, False)
+        self.network = Network(self.state_size, self.action_size, True)
         self.loss_function = keras.losses.mse
         self.optimizer = keras.optimizers.Adam(learning_rate=0.005, clipnorm=10)
 
@@ -107,8 +108,8 @@ class Pacman:
                     action_sample = [action_history[i] for i in indices]
                     done_sample = tf.convert_to_tensor([float(done_history[i]) for i in indices])
                     # Approximate sum of future rewards by predicting the next optimal action
-                    future_rewards = self.network.future_model.predict(state_next_sample,
-                                                                       callbacks=[self.network.early_stopping])
+                    future_rewards = self.network.model.predict(state_next_sample,
+                                                                callbacks=[self.network.early_stopping])
                     updated_q_values = rewards_sample + self.gamma * tf.reduce_max(
                         future_rewards, axis=1
                     )
@@ -125,7 +126,7 @@ class Pacman:
                     self.optimizer.apply_gradients(zip(grads, self.network.model.trainable_variables))
                 # Update future weights
                 if frame_count > 10000 and frame_count % self.update_future_freq == 0:
-                    self.network.future_model.set_weights(self.network.model.get_weights())
+                    self.network.model.set_weights(self.network.model.get_weights())
                 # Remove from buffer
                 if len(rewards_history) > self.max_memory_length:
                     del rewards_history[:1]
@@ -137,7 +138,7 @@ class Pacman:
                     break
             # All rewards
             episode_reward_history.append(total_reward)
-            if total_reward > best:
+            if total_reward >= best:
                 self.network.save_model("./pacman_best.h5")
                 best = total_reward
             if episode % 30 == 0:
@@ -148,36 +149,68 @@ class Pacman:
         print("Training finished and models saved.")
 
     def plot(self, episode, episode_reward_history):
-         episode_reward_history = [
-             episode_reward_history[a] + episode_reward_history[a + 1] + episode_reward_history[a + 2] for a in
-             range(0, len(episode_reward_history) - 2, 3)]
-         plt.plot(range(episode // 3), episode_reward_history)
-         plt.title('Training reward')
-         plt.xlabel('Episodes')
-         plt.ylabel('Reward')
-         plt.legend()
-         plt.draw()
-         plt.savefig('plots/rewards_{}.png'.format(episode))
-         # plt.show(block = False)
+        episode_reward_history = [
+            episode_reward_history[a] + episode_reward_history[a + 1] + episode_reward_history[a + 2] for a in
+            range(0, len(episode_reward_history) - 2, 3)]
+        plt.plot(range(episode // 3), episode_reward_history)
+        plt.title('Training reward')
+        plt.xlabel('Episodes')
+        plt.ylabel('Reward')
+        plt.legend()
+        plt.draw()
+        plt.savefig('plots/rewards_{}.png'.format(episode))
+        # plt.show(block = False)
 
     def play(self):
-        model = self.network.load_model("./pacman_best.h5")
+        model = self.network.load_model("pacman_best.h5")
         for i_episode in range(20):
-            observation = self.env.reset()
+            observation = np.array(self.env.reset())
+            # observation.fill(1.0)
+            # print(observation)
             for t in range(10000):
                 self.env.render()
+                # print(np.array(observation))
+                # print(np.shape(observation))
                 if self.epsilon_min > np.random.rand(1)[0]:
                     action = np.random.choice(self.action_size)
                 else:
                     state_tensor = tf.convert_to_tensor(observation)
                     state_tensor = tf.expand_dims(state_tensor, 0)
                     action_probs = model(state_tensor)
+                    # print(action_probs)
                     action = tf.argmax(action_probs[0]).numpy()
-                observation, reward, done, info = self.env.step(action)
+                # print(action)
+                observation_next, reward, done, info = self.env.step(action)
+                observation_next = np.array(observation_next)
+                observation = observation_next
+                # observation.fill(1.0)
+
+                state_tensor = tf.convert_to_tensor(observation_next)
+                state_tensor = tf.expand_dims(state_tensor, 0)
+                future_rewards = model.predict(state_tensor)
+                updated_q_values = reward + self.gamma * tf.reduce_max(future_rewards)
+                updated_q_values = updated_q_values * (1 - done) - done
+                # Labels
+                masks = tf.one_hot(action, self.action_size)
+                # Feed-forward
+                with tf.GradientTape() as tape:
+                    state_tensor = tf.convert_to_tensor(observation)
+                    state_tensor = tf.expand_dims(state_tensor, 0)
+                    q_values = model(state_tensor)
+                    q_action = tf.reduce_sum(tf.multiply(q_values, masks), 1)
+                    print(updated_q_values)
+                    print(np.shape(q_action))
+                    loss = self.loss_function(updated_q_values, q_action)
+                # Backpropagation
+                grads = tape.gradient(loss, model.trainable_variables)
+                self.optimizer.apply_gradients(zip(grads, model.trainable_variables))
+
+                model.set_weights(model.get_weights())
                 if done:
                     break
 
+
 if __name__ == "__main__":
     pac = Pacman()
-    pac.train()
-    # pac.play()
+    # pac.train()
+    pac.play()
